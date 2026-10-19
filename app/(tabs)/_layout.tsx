@@ -8,7 +8,6 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Stack } from "expo-router";
 import { Provider } from "./Context.js";
 
-
 export default function TabLayout() {
   const colorScheme = useColorScheme();
 

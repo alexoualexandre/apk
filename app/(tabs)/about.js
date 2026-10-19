@@ -1,4 +1,4 @@
-import { View, Text } from "react-native";
+{/*import { View, Text } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { MyContext } from "./Context.js";
 
@@ -13,3 +13,5 @@ export default function About() {
     </View>
   );
 }
+*/}
+
