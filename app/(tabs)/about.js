@@ -1,5 +1,5 @@
-{/*import { View, Text } from "react-native";
 import { useLocalSearchParams } from "expo-router";
+import { Text, View } from "react-native";
 import { MyContext } from "./Context.js";
 
 export default function About() {
@@ -9,9 +9,9 @@ export default function About() {
 
   return (
     <View style={{ marginTop: "50%" }}>
-      <Text>Page About {id} et le context est {name}</Text>
+      <Text>
+        Page About {id} et le context est {name}
+      </Text>
     </View>
   );
 }
-*/}
-
