@@ -2,7 +2,7 @@ import { Accelerometer } from "expo-sensors";
 import React, { useEffect, useState } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
-
+import { Link } from "expo-router";
 {
   /*import { View, Text, Button } from "react-native";
 import { Link } from "expo-router";
@@ -184,7 +184,7 @@ export default function Index() {
 
   return (
     <View style={styles.container}>
-      <Svg
+ <Svg
         width="100%"
         height="100%"
         style={{ position: "absolute", backgroundColor: "red" }}
@@ -211,6 +211,7 @@ export default function Index() {
         />
       </Svg>
       {/* <View style={styles.mur} /> */}
+ 
       <View
         style={[
           styles.bille,
@@ -221,7 +222,7 @@ export default function Index() {
         ]}
       />
     </View>
-  );
+ );
 }
 
 const styles = StyleSheet.create({

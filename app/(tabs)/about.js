@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from "expo-router";
+/*import { useLocalSearchParams } from "expo-router";
 import { Text, View } from "react-native";
 import { MyContext } from "./Context.js";
 
@@ -15,3 +15,20 @@ export default function About() {
     </View>
   );
 }
+*/
+
+import Svg, { Path } from "react-native-svg";
+
+export default function About() {
+  return (
+    <Svg width="100%" height={300}>
+      <Path
+        d="M 30 200 Q 150 0 270 200"
+        stroke="red"
+        strokeWidth={4}
+        fill="none"
+      />
+    </Svg>
+  );
+}
+
