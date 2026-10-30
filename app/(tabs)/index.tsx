@@ -1,81 +1,25 @@
 import { Accelerometer } from "expo-sensors";
 import React, { useEffect, useState } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
-import Svg, { Path } from "react-native-svg";
-import { Link } from "expo-router";
-{
-  /*import { View, Text, Button } from "react-native";
-import { Link } from "expo-router";
-import { useState, useEffect } from "react";
+import Svg, {
+  Circle,
+  Defs,
+  Path,
+  RadialGradient,
+  Stop,
+} from "react-native-svg";
 
-
-export default function Index() {
-
-
-const [state,setState] = useState(false);
-
-useEffect(
-()=>{fetch('http://77.37.51.45:5010/teste').
-then((res)=>res.json()
-).
-then((resp)=>{
-setState(resp);
-
-});
-},[]
-);
-  return (
-    <View style={styles.container}>
-      <Text>Page accueil</Text>
-
-      <Link href="/about?id=28" style={styles.color}>
-        ller  About {state && state[0].name}
-      </Link>
-    </View>
-  );
-}
-*/
-}
-
-function collision(x, y) {
-  const tailleBille = 30;
-
-  const mur = {
-    left: 100,
-    top: 200,
-    width: 150,
-    height: 15,
-  };
-
-  return (
-    x < mur.left + mur.width &&
-    x + tailleBille > mur.left &&
-    y < mur.top + mur.height &&
-    y + tailleBille > mur.top
-  );
-}
-
-const route = [{ x: 30, y: 100 }];
-
-// Calcule les points d'une courbe de Bézier
-function ajouterCourbe(p0, p1, p2, p3, nombre = 100) {
+// Calcule les points d'une courbe de Bézier quadratique
+function ajouterCourbe(p0, p1, p2, nombre = 100) {
   const points = [];
 
   for (let i = 1; i <= nombre; i++) {
     const t = i / nombre;
     const u = 1 - t;
 
-    const x =
-      u ** 3 * p0.x +
-      3 * u ** 2 * t * p1.x +
-      3 * u * t ** 2 * p2.x +
-      t ** 3 * p3.x;
+    const x = u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x;
 
-    const y =
-      u ** 3 * p0.y +
-      3 * u ** 2 * t * p1.y +
-      3 * u * t ** 2 * p2.y +
-      t ** 3 * p3.y;
+    const y = u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y;
 
     points.push({ x, y });
   }
@@ -83,23 +27,7 @@ function ajouterCourbe(p0, p1, p2, p3, nombre = 100) {
   return points;
 }
 
-// Reproduit les deux courbes de notre dessin SVG
-const pointsRoute = [
-  ...route,
-  ...ajouterCourbe(
-    { x: 70, y: 100 },
-    { x: 30, y: 30 },
-    { x: 200, y: 30 },
-    { x: 200, y: 120 },
-  ),
-  ...ajouterCourbe(
-    { x: 200, y: 120 },
-    { x: 200, y: 210 },
-    { x: 50, y: 180 },
-    { x: 80, y: 280 },
-  ),
-];
-
+// Calcule la distance entre un point et un segment
 function distanceSegment(point, a, b) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -112,7 +40,6 @@ function distanceSegment(point, a, b) {
 
   let t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / longueurCarree;
 
-  // On limite la projection au segment
   t = Math.max(0, Math.min(1, t));
 
   const procheX = a.x + t * dx;
@@ -121,7 +48,8 @@ function distanceSegment(point, a, b) {
   return Math.hypot(point.x - procheX, point.y - procheY);
 }
 
-function estSurRoute(x, y) {
+// Vérifie si la bille est sur la route
+function estSurRoute(x, y, pointsRoute) {
   const centre = {
     x: x + 15,
     y: y + 15,
@@ -139,19 +67,51 @@ function estSurRoute(x, y) {
     distanceMin = Math.min(distanceMin, distance);
   }
 
-  return distanceMin <= 35;
+  return distanceMin <= 37;
 }
 
 export default function Index() {
   const { width, height } = useWindowDimensions();
 
+  // Points utilisés pour vérifier les collisions
+  const pointsRoute = [
+    { x: width / 2, y: height },
+
+    ...ajouterCourbe(
+      { x: width / 2, y: height },
+      { x: 150, y: 500 },
+      { x: 270, y: 600 },
+    ),
+
+    ...ajouterCourbe(
+      { x: 270, y: 600 },
+      { x: 375, y: 700 },
+      { x: 335, y: 500 },
+    ),
+    ...ajouterCourbe(
+      { x: 335, y: 500 },
+      { x: 200, y: 350 },
+      { x: 100, y: 400 },
+    ),
+  ];
+
+  // Position initiale de la bille
   const [position, setPosition] = useState({
-    x: 15,
-    y: 85,
+    x: width / 2 - 15,
+    y: height - 30,
   });
 
+  // Réinitialise la position si les dimensions changent
   useEffect(() => {
-    Accelerometer.setUpdateInterval(8);
+    setPosition({
+      x: width / 2 - 15,
+      y: height - 30,
+    });
+  }, [width, height]);
+
+  // Contrôle avec l'accéléromètre
+  useEffect(() => {
+    Accelerometer.setUpdateInterval(16);
 
     const subscription = Accelerometer.addListener(({ x, y }) => {
       setPosition((ancienne) => {
@@ -165,84 +125,113 @@ export default function Index() {
           Math.min(height - 30, ancienne.y + y * 10),
         );
 
-        if (estSurRoute(nouvelleX, nouvelleY)) {
+        if (estSurRoute(nouvelleX, nouvelleY, pointsRoute)) {
           return {
             x: nouvelleX,
             y: nouvelleY,
           };
         }
 
-        // Collision : on conserve la position actuelle
         return ancienne;
       });
-
-      ///////
     });
 
     return () => subscription.remove();
-  }, []);
+  }, [width, height]);
+
+  // Trajectoire visible
+  const chemin =
+    `M ${width / 2} ${height} ` +
+    `Q 150 500 270 600 ` +
+    `Q 375 700 335 500` +
+    `Q 200 350 100 400`;
 
   return (
     <View style={styles.container}>
- <Svg
-        width="100%"
-        height="100%"
-        style={{ position: "absolute", backgroundColor: "red" }}
-      >
-        {/* Le chemin de la route */}
+      {/* Route */}
+      <Svg width={width} height={height} style={styles.route}>
         <Path
-          // d="M 70 100 C 30 30, 200 30, 200 120 S 50 180, 80 280"
-          d="M 30 100 C 30 00, 000 00, 000 000 S 00 000, 00 000"
-          stroke="#555555"
-          strokeWidth="100"
-          fill="none"
+          d={chemin}
+          stroke="white"
+          strokeWidth={100}
           strokeLinecap="round"
           strokeLinejoin="round"
+          fill="none"
         />
 
-        {/* Le centre de la route */}
         <Path
-          // d="M 30 100 C 30 30, 200 30, 200 120 S 50 180, 80 280"
-          d="M 00 000 C 00 00, 000 00, 000 000 S 00 000, 00 000"
-          stroke="#FFFFFF"
-          strokeWidth="2"
+          d={chemin}
+          stroke="black"
+          strokeWidth={3}
           strokeDasharray="8 8"
           fill="none"
         />
       </Svg>
-      {/* <View style={styles.mur} /> */}
- 
-      <View
-        style={[
-          styles.bille,
-          {
-            left: position.x,
-            top: position.y,
-          },
-        ]}
-      />
+
+      {/* Bille bleue brillante */}
+      <Svg
+        width={30}
+        height={30}
+        viewBox="0 0 30 30"
+        style={{
+          position: "absolute",
+          left: position.x,
+          top: position.y,
+        }}
+      >
+        <Defs>
+          <RadialGradient
+            id="bleuBrillant"
+            cx="30%"
+            cy="25%"
+            rx="75%"
+            ry="75%"
+            fx="25%"
+            fy="20%"
+          >
+            <Stop offset="0%" stopColor="#D9FAFF" />
+            <Stop offset="18%" stopColor="#65E1FF" />
+            <Stop offset="45%" stopColor="#079BFF" />
+            <Stop offset="75%" stopColor="#0754E8" />
+            <Stop offset="100%" stopColor="#021C69" />
+          </RadialGradient>
+        </Defs>
+
+        {/* Ombre sous la bille */}
+        <Circle cx={15} cy={16} r={13.5} fill="#00123F" opacity={0.35} />
+
+        {/* Corps de la bille */}
+        <Circle
+          cx={15}
+          cy={14.5}
+          r={14}
+          fill="url(#bleuBrillant)"
+          stroke="#48CFFF"
+          strokeWidth={0.8}
+        />
+
+        {/* Grand reflet */}
+        <Circle cx={9} cy={7} r={3.2} fill="white" opacity={0.98} />
+
+        {/* Petit reflet secondaire */}
+        <Circle cx={5.5} cy={11} r={1.2} fill="white" opacity={0.9} />
+
+        {/* Reflet en bas */}
+        <Circle cx={21} cy={22} r={1.5} fill="#D8FAFF" opacity={0.95} />
+      </Svg>
     </View>
- );
+  );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: "green",
   },
-  bille: {
+
+  route: {
     position: "absolute",
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "white",
-  },
-  mur: {
-    position: "absolute",
-    left: 100,
-    top: 200,
-    width: 150,
-    height: 15,
-    backgroundColor: "blue",
+    top: 0,
+    left: 0,
   },
 });

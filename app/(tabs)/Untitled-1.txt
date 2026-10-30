@@ -1,0 +1,31 @@
+  /*import { View, Text, Button } from "react-native";
+import { Link } from "expo-router";
+import { useState, useEffect } from "react";
+
+
+export default function Index() {
+
+
+const [state,setState] = useState(false);
+
+useEffect(
+()=>{fetch('http://77.37.51.45:5010/teste').
+then((res)=>res.json()
+).
+then((resp)=>{
+setState(resp);
+
+});
+},[]
+);
+  return (
+    <View style={styles.container}>
+      <Text>Page accueil</Text>
+
+      <Link href="/about?id=28" style={styles.color}>
+        ller  About {state && state[0].name}
+      </Link>
+    </View>
+  );
+}
+*/
