@@ -1,0 +1,819 @@
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  useWindowDimensions,
+} from "react-native";
+import { Accelerometer } from "expo-sensors";
+
+import Svg, {
+  G,
+  Rect,
+  Circle,
+  Ellipse,
+  Path,
+  Polygon,
+  Line,
+  Defs,
+  LinearGradient,
+  RadialGradient,
+  Stop,
+} from "react-native-svg";
+
+// ----------------------------------
+// RÉGLAGES
+// ----------------------------------
+
+const LARGEUR_ROUTE = 175;
+const RAYON_BILLE = 15;
+
+const DUREE_PARCOURS = 60;
+
+// Pilotage
+const SENSIBILITE_DIRECTION = 900;
+const SENS_DIRECTION = -1;
+
+// Capteur
+const FILTRE = 0.30;
+const ZONE_MORTE = 0.015;
+
+// ----------------------------------
+// CRÉATION DE LA ROUTE
+// ----------------------------------
+
+function creerRoute(width, height) {
+  const centre = width / 2;
+  const points = [];
+
+  function ajouterCourbe(p0, p1, p2, nombre = 100) {
+    for (let i = 0; i <= nombre; i++) {
+      if (points.length > 0 && i === 0) continue;
+
+      const t = i / nombre;
+      const inverse = 1 - t;
+
+      const x =
+        inverse * inverse * p0.x +
+        2 * inverse * t * p1.x +
+        t * t * p2.x;
+
+      const y =
+        inverse * inverse * p0.y +
+        2 * inverse * t * p1.y +
+        t * t * p2.y;
+
+      points.push({ x, y });
+    }
+  }
+
+  const depart = { x: centre, y: height * 0.97 };
+
+  const virage1 = {
+    x: centre - width * 0.27,
+    y: height * 0.78,
+  };
+
+  const virage2 = {
+    x: centre + width * 0.28,
+    y: height * 0.59,
+  };
+
+  const virage3 = {
+    x: centre + width * 0.22,
+    y: height * 0.40,
+  };
+
+  const virage4 = {
+    x: centre - width * 0.25,
+    y: height * 0.23,
+  };
+
+  const arrivee = {
+    x: centre + width * 0.10,
+    y: height * 0.07,
+  };
+
+  ajouterCourbe(
+    depart,
+    { x: centre - width * 0.65, y: height * 0.90 },
+    virage1
+  );
+
+  ajouterCourbe(
+    virage1,
+    { x: centre + width * 0.55, y: height * 0.68 },
+    virage2
+  );
+
+  ajouterCourbe(
+    virage2,
+    { x: centre + width * 0.60, y: height * 0.47 },
+    virage3
+  );
+
+  ajouterCourbe(
+    virage3,
+    { x: centre - width * 0.60, y: height * 0.31 },
+    virage4
+  );
+
+  ajouterCourbe(
+    virage4,
+    { x: centre + width * 0.50, y: height * 0.12 },
+    arrivee
+  );
+
+  return points;
+}
+
+// ----------------------------------
+// CALCUL DES BORDS
+// ----------------------------------
+
+function calculerBords(points) {
+  const gauche = [];
+  const droite = [];
+
+  points.forEach((point, index) => {
+    const precedent = points[Math.max(0, index - 1)];
+    const suivant = points[Math.min(points.length - 1, index + 1)];
+
+    const dx = suivant.x - precedent.x;
+    const dy = suivant.y - precedent.y;
+
+    const longueur = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    const normalX = -dy / longueur;
+    const normalY = dx / longueur;
+
+    gauche.push({
+      x: point.x + normalX * LARGEUR_ROUTE / 2,
+      y: point.y + normalY * LARGEUR_ROUTE / 2,
+    });
+
+    droite.push({
+      x: point.x - normalX * LARGEUR_ROUTE / 2,
+      y: point.y - normalY * LARGEUR_ROUTE / 2,
+    });
+  });
+
+  return { gauche, droite };
+}
+
+// ----------------------------------
+// COMPOSANT PRINCIPAL
+// ----------------------------------
+
+export default function Index() {
+  const { width, height } = useWindowDimensions();
+
+  const pointsRoute = useMemo(
+    () => creerRoute(width, height),
+    [width, height]
+  );
+
+  const bords = useMemo(
+    () => calculerBords(pointsRoute),
+    [pointsRoute]
+  );
+
+  const [progression, setProgression] = useState(0);
+  const [decalage, setDecalage] = useState(0);
+  const [termine, setTermine] = useState(false);
+  const [alerte, setAlerte] = useState(false);
+  const [calibre, setCalibre] = useState(false);
+
+  const inclinaisonRef = useRef(0);
+  const inclinaisonFiltreeRef = useRef(0);
+
+  const decalageRef = useRef(0);
+  const progressionRef = useRef(0);
+
+  // ----------------------------------
+  // ACCÉLÉROMÈTRE
+  // ----------------------------------
+
+  useEffect(() => {
+    Accelerometer.setUpdateInterval(16);
+
+    let total = 0;
+    let nombreMesures = 0;
+    let reference = null;
+
+    const abonnement = Accelerometer.addListener(({ x }) => {
+      // Calibration initiale
+      if (reference === null) {
+        total += x;
+        nombreMesures++;
+
+        if (nombreMesures >= 30) {
+          reference = total / nombreMesures;
+          setCalibre(true);
+        }
+
+        return;
+      }
+
+      // Inversion du sens du pilotage
+      const difference =
+        (x - reference) * SENS_DIRECTION;
+
+      // Filtrage du capteur
+      inclinaisonFiltreeRef.current +=
+        (difference - inclinaisonFiltreeRef.current) * FILTRE;
+
+      inclinaisonRef.current =
+        inclinaisonFiltreeRef.current;
+    });
+
+    return () => abonnement.remove();
+  }, []);
+
+  // ----------------------------------
+  // ANIMATION DU JEU
+  // ----------------------------------
+
+  useEffect(() => {
+    let precedent = Date.now();
+
+    const intervalle = setInterval(() => {
+      const maintenant = Date.now();
+
+      const delta = Math.min(
+        (maintenant - precedent) / 1000,
+        0.05
+      );
+
+      precedent = maintenant;
+
+      if (progressionRef.current >= 1) {
+        return;
+      }
+
+      // Avancement automatique
+      progressionRef.current = Math.min(
+        1,
+        progressionRef.current + delta / DUREE_PARCOURS
+      );
+
+      // Direction contrôlée par le téléphone
+      let inclinaison = inclinaisonRef.current;
+
+      if (Math.abs(inclinaison) < ZONE_MORTE) {
+        inclinaison = 0;
+      }
+
+      decalageRef.current +=
+        inclinaison * SENSIBILITE_DIRECTION * delta;
+
+      // Limites de la route
+      const limite =
+        LARGEUR_ROUTE / 2 - RAYON_BILLE;
+
+      decalageRef.current = Math.max(
+        -limite,
+        Math.min(limite, decalageRef.current)
+      );
+
+      setProgression(progressionRef.current);
+      setDecalage(decalageRef.current);
+
+      setAlerte(
+        Math.abs(decalageRef.current) > limite * 0.80
+      );
+
+      if (progressionRef.current >= 1) {
+        setTermine(true);
+      }
+    }, 16);
+
+    return () => clearInterval(intervalle);
+  }, []);
+
+  // ----------------------------------
+  // POSITION DE LA BILLE
+  // ----------------------------------
+
+  const indexBille = Math.min(
+    pointsRoute.length - 2,
+    Math.floor(progression * (pointsRoute.length - 1))
+  );
+
+  const pointBille = pointsRoute[indexBille];
+
+  const pointAvant =
+    pointsRoute[Math.max(0, indexBille - 1)];
+
+  const pointApres =
+    pointsRoute[Math.min(pointsRoute.length - 1, indexBille + 1)];
+
+  const dx = pointApres.x - pointAvant.x;
+  const dy = pointApres.y - pointAvant.y;
+
+  const longueur = Math.sqrt(dx * dx + dy * dy) || 1;
+
+  const normalX = -dy / longueur;
+  const normalY = dx / longueur;
+
+  const positionBilleX =
+    pointBille.x + normalX * decalage;
+
+  const positionBilleY =
+    pointBille.y + normalY * decalage;
+
+  // ----------------------------------
+  // ROUTE
+  // ----------------------------------
+
+  const pointsGauche = bords.gauche
+    .map((p) => `${p.x},${p.y}`)
+    .join(" ");
+
+  const pointsDroite = [...bords.droite]
+    .reverse()
+    .map((p) => `${p.x},${p.y}`)
+    .join(" ");
+
+  const polygoneRoute =
+    `${pointsGauche} ${pointsDroite}`;
+
+  const cheminCentre = pointsRoute
+    .map((p, index) =>
+      `${index === 0 ? "M" : "L"} ${p.x} ${p.y}`
+    )
+    .join(" ");
+
+  const cheminGauche = bords.gauche
+    .map((p, index) =>
+      `${index === 0 ? "M" : "L"} ${p.x} ${p.y}`
+    )
+    .join(" ");
+
+  const cheminDroite = bords.droite
+    .map((p, index) =>
+      `${index === 0 ? "M" : "L"} ${p.x} ${p.y}`
+    )
+    .join(" ");
+
+  // ----------------------------------
+  // VITESSE VISUELLE DU DÉCOR
+  // ----------------------------------
+
+  const mouvement = progression * height * 12;
+
+  const mouvementMontagnes = progression * width * 0.7;
+  const mouvementCollines = progression * width * 1.3;
+
+  // ----------------------------------
+  // ARBRES : DÉFILEMENT RAPIDE
+  // ----------------------------------
+
+  const arbres = [];
+
+  for (let i = 0; i < 32; i++) {
+    const baseY = i * height * 0.09;
+
+    const y =
+      ((baseY + mouvement) % (height * 1.2)) -
+      height * 0.1;
+
+    const cote = i % 2 === 0 ? -1 : 1;
+
+    const x =
+      width / 2 +
+      cote * (width * 0.43 + (i % 3) * 15);
+
+    const taille = 28 + (i % 3) * 9;
+
+    arbres.push({ x, y, taille, key: i });
+  }
+
+  // ----------------------------------
+  // NUAGES : DÉFILEMENT LENT
+  // ----------------------------------
+
+  const nuages = [];
+
+  for (let i = 0; i < 7; i++) {
+    const x =
+      ((i * width * 0.24 + mouvementMontagnes * 0.7) %
+        (width * 1.3)) - width * 0.15;
+
+    const y = height * (0.08 + (i % 3) * 0.08);
+
+    nuages.push({ x, y, key: i });
+  }
+
+  // ----------------------------------
+  // MONTAGNES : PARALLAXE
+  // ----------------------------------
+
+  const montagnes = [];
+
+  for (let i = 0; i < 8; i++) {
+    const x =
+      ((i * width * 0.35 - mouvementMontagnes) %
+        (width * 1.5) + width * 1.5) %
+        (width * 1.5) - width * 0.25;
+
+    montagnes.push({
+      x,
+      hauteur: height * (0.17 + (i % 3) * 0.035),
+      largeur: width * (0.25 + (i % 2) * 0.08),
+      key: i,
+    });
+  }
+
+  // ----------------------------------
+  // COLLINES : PARALLAXE PLUS RAPIDE
+  // ----------------------------------
+
+  const collines = [];
+
+  for (let i = 0; i < 5; i++) {
+    const x =
+      ((i * width * 0.45 - mouvementCollines) %
+        (width * 1.8) + width * 1.8) %
+        (width * 1.8) - width * 0.4;
+
+    collines.push({
+      x,
+      key: i,
+    });
+  }
+
+  const pourcentage = Math.floor(progression * 100);
+
+  const secondes = Math.min(
+    60,
+    Math.floor(progression * DUREE_PARCOURS)
+  );
+
+  // ----------------------------------
+  // AFFICHAGE
+  // ----------------------------------
+
+  return (
+    <View style={styles.container}>
+      <Svg width={width} height={height}>
+        <Defs>
+          <LinearGradient
+            id="ciel"
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="1"
+          >
+            <Stop offset="0" stopColor="#0874bd" />
+            <Stop offset="1" stopColor="#c5edff" />
+          </LinearGradient>
+
+          <LinearGradient
+            id="route"
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="1"
+          >
+            <Stop offset="0" stopColor="#626873" />
+            <Stop offset="1" stopColor="#20242d" />
+          </LinearGradient>
+
+          <RadialGradient
+            id="bille"
+            cx="35%"
+            cy="30%"
+            r="70%"
+          >
+            <Stop offset="0" stopColor="#ffffff" />
+            <Stop offset="0.25" stopColor="#55c8ff" />
+            <Stop offset="1" stopColor="#0051bb" />
+          </RadialGradient>
+        </Defs>
+
+        {/* CIEL */}
+        <Rect
+          x="0"
+          y="0"
+          width={width}
+          height={height}
+          fill="url(#ciel)"
+        />
+
+        {/* SOLEIL */}
+        <Circle
+          cx={width * 0.78}
+          cy={height * 0.13}
+          r={height * 0.045}
+          fill="#ffe58a"
+        />
+
+        {/* MONTAGNES MOBILES */}
+        {montagnes.map((m) => (
+          <Polygon
+            key={m.key}
+            points={`
+              ${m.x},${height * 0.44}
+              ${m.x + m.largeur / 2},${height * 0.44 - m.hauteur}
+              ${m.x + m.largeur},${height * 0.44}
+            `}
+            fill="#547b91"
+          />
+        ))}
+
+        {/* COLLINES MOBILES */}
+        {collines.map((c) => (
+          <Path
+            key={c.key}
+            d={`
+              M ${c.x - width * 0.3} ${height * 0.49}
+              Q ${c.x} ${height * 0.35}
+                ${c.x + width * 0.3} ${height * 0.49}
+              L ${c.x + width * 0.3} ${height}
+              L ${c.x - width * 0.3} ${height}
+              Z
+            `}
+            fill="#39734b"
+          />
+        ))}
+
+        {/* NUAGES MOBILES */}
+        {nuages.map((nuage) => (
+          <G key={nuage.key}>
+            <Circle
+              cx={nuage.x}
+              cy={nuage.y}
+              r="17"
+              fill="#ffffff"
+              opacity="0.8"
+            />
+            <Circle
+              cx={nuage.x + 17}
+              cy={nuage.y + 5}
+              r="21"
+              fill="#ffffff"
+              opacity="0.8"
+            />
+            <Circle
+              cx={nuage.x + 37}
+              cy={nuage.y}
+              r="15"
+              fill="#ffffff"
+              opacity="0.8"
+            />
+          </G>
+        ))}
+
+        {/* SOL */}
+        <Rect
+          x="0"
+          y={height * 0.48}
+          width={width}
+          height={height * 0.52}
+          fill="#39734b"
+          opacity="0.25"
+        />
+
+        {/* ARBRES MOBILES */}
+        {arbres.map((arbre) => (
+          <G key={arbre.key}>
+            <Rect
+              x={arbre.x - arbre.taille * 0.09}
+              y={arbre.y}
+              width={arbre.taille * 0.18}
+              height={arbre.taille * 0.7}
+              fill="#68452c"
+            />
+
+            <Circle
+              cx={arbre.x}
+              cy={arbre.y}
+              r={arbre.taille * 0.48}
+              fill="#174e32"
+            />
+
+            <Circle
+              cx={arbre.x - arbre.taille * 0.18}
+              cy={arbre.y + arbre.taille * 0.08}
+              r={arbre.taille * 0.27}
+              fill="#267a43"
+            />
+          </G>
+        ))}
+
+        {/* BORD EXTÉRIEUR */}
+        <Polygon
+          points={polygoneRoute}
+          fill="#eeeeee"
+        />
+
+        {/* CHAUSSÉE */}
+        <Path
+          d={cheminCentre}
+          stroke="url(#route)"
+          strokeWidth={LARGEUR_ROUTE - 8}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+
+        {/* BORDS */}
+        <Path
+          d={cheminGauche}
+          stroke="#ffffff"
+          strokeWidth="3"
+          fill="none"
+        />
+
+        <Path
+          d={cheminDroite}
+          stroke="#ffffff"
+          strokeWidth="3"
+          fill="none"
+        />
+
+        {/* LIGNE CENTRALE */}
+        <Path
+          d={cheminCentre}
+          stroke="#f7e9a2"
+          strokeWidth="3"
+          strokeDasharray="14 18"
+          strokeLinecap="round"
+          fill="none"
+        />
+
+        {/* DÉPART */}
+        <Line
+          x1={bords.gauche[0].x}
+          y1={bords.gauche[0].y}
+          x2={bords.droite[0].x}
+          y2={bords.droite[0].y}
+          stroke="#ffffff"
+          strokeWidth="9"
+        />
+
+        {/* BILLE */}
+        <Circle
+          cx={positionBilleX}
+          cy={positionBilleY}
+          r={RAYON_BILLE}
+          fill="url(#bille)"
+          stroke="#bceaff"
+          strokeWidth="2"
+        />
+
+        {/* REFLET */}
+        <Circle
+          cx={positionBilleX - 5}
+          cy={positionBilleY - 6}
+          r="5"
+          fill="#ffffff"
+          opacity="0.85"
+        />
+
+        <Ellipse
+          cx={positionBilleX + 5}
+          cy={positionBilleY + 7}
+          rx="6"
+          ry="3"
+          fill="#003d9a"
+          opacity="0.5"
+        />
+
+        {/* ARRIVÉE */}
+        <Line
+          x1={bords.gauche[bords.gauche.length - 1].x}
+          y1={bords.gauche[bords.gauche.length - 1].y}
+          x2={bords.droite[bords.droite.length - 1].x}
+          y2={bords.droite[bords.droite.length - 1].y}
+          stroke="#ffe16b"
+          strokeWidth="9"
+        />
+      </Svg>
+
+      {/* INTERFACE */}
+      <View style={styles.interface}>
+        <View style={styles.barreProgression}>
+          <View
+            style={[
+              styles.remplissage,
+              { width: `${pourcentage}%` },
+            ]}
+          />
+        </View>
+
+        <Text style={styles.texte}>
+          {secondes} s / 60 s
+        </Text>
+
+        <Text style={styles.texteSecondaire}>
+          Parcours : {pourcentage} %
+        </Text>
+
+        {!calibre && (
+          <Text style={styles.message}>
+            Garde ton téléphone à plat...
+          </Text>
+        )}
+
+        {calibre && (
+          <Text style={styles.message}>
+            Incline ton téléphone pour diriger la bille
+          </Text>
+        )}
+
+        {alerte && (
+          <Text style={styles.alerte}>
+            Attention, tu approches du bord !
+          </Text>
+        )}
+
+        {termine && (
+          <Text style={styles.victoire}>
+            ARRIVÉE ! BRAVO !
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ----------------------------------
+// STYLES
+// ----------------------------------
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#87ceeb",
+  },
+
+  interface: {
+    position: "absolute",
+    top: 45,
+    left: 20,
+    right: 20,
+    alignItems: "center",
+  },
+
+  barreProgression: {
+    width: "100%",
+    height: 8,
+    backgroundColor: "rgba(0,0,0,0.25)",
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+
+  remplissage: {
+    height: 8,
+    backgroundColor: "#ffe16b",
+    borderRadius: 10,
+  },
+
+  texte: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "bold",
+    marginTop: 8,
+    textShadowColor: "#17334a",
+    textShadowRadius: 4,
+  },
+
+  texteSecondaire: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "bold",
+    marginTop: 3,
+    textShadowColor: "#17334a",
+    textShadowRadius: 4,
+  },
+
+  message: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "bold",
+    marginTop: 8,
+    textShadowColor: "#17334a",
+    textShadowRadius: 4,
+    textAlign: "center",
+  },
+
+  alerte: {
+    color: "#ffef9a",
+    fontWeight: "bold",
+    marginTop: 10,
+    textShadowColor: "#000000",
+    textShadowRadius: 4,
+  },
+
+  victoire: {
+    color: "#ffffff",
+    fontSize: 27,
+    fontWeight: "bold",
+    marginTop: 20,
+    textShadowColor: "#000000",
+    textShadowRadius: 5,
+  },
+});
